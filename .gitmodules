@@ -1,0 +1,9 @@
+[submodule "lib/hxmocha"]
+	path = lib/hxmocha
+	url = https://github.com/DenkiYagi/hxmocha
+[submodule "lib/hxgnd"]
+	path = lib/hxgnd
+	url = https://github.com/DenkiYagi/hxgnd
+[submodule "lib/hxgnd.jsviews"]
+	path = lib/hxgnd.jsviews
+	url = https://github.com/DenkiYagi/hxgnd.jsviews
