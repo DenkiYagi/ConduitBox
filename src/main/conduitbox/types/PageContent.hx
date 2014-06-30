@@ -1,7 +1,7 @@
 package conduitbox.types;
 
 import js.html.Element;
-import js.support.Stream;
+import hxgnd.Stream;
 
 typedef PageContent<TPage: EnumValue> = {
     var navigation(default, null): Stream<PageNavigation<TPage>>;

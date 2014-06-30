@@ -1,6 +1,6 @@
 package conduitbox;
 
-import js.support.Stream;
+import hxgnd.Stream;
 import conduitbox.types.Location;
 
 typedef ApplicationContext = {

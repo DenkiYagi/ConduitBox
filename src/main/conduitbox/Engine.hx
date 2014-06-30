@@ -1,13 +1,13 @@
 package conduitbox;
 
 import conduitbox.types.Application;
-import js.support.ControllablePromise;
 import conduitbox.types.PageContent;
 import conduitbox.types.PageFrame;
 import conduitbox.types.PageNavigation;
-import js.support.Stream;
-import js.support.Unit;
-import js.support.Option;
+import hxgnd.ControllablePromise;
+import hxgnd.Stream;
+import hxgnd.Unit;
+import hxgnd.Option;
 import js.Browser;
 import js.Error;
 import js.html.AnchorElement;
@@ -16,7 +16,7 @@ import js.html.Event;
 import js.html.EventTarget;
 
 using Lambda;
-using js.support.OptionTools;
+using hxgnd.OptionTools;
 
 class Engine<TPage: EnumValue> {
     var app: Application<TPage>;

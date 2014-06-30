@@ -1,13 +1,10 @@
 package conduitbox.types;
 
-import js.support.Promise;
-import js.support.Unit;
-import js.support.Option;
+import hxgnd.Promise;
+import hxgnd.Unit;
+import hxgnd.Option;
 import conduitbox.ApplicationContext;
 
-/**
- * @author terurou
- */
 typedef Application<TPage: EnumValue> = {
     function bootstrap(): Promise<Unit>;
     function frame(context: ApplicationContext): PageFrame<TPage>;
