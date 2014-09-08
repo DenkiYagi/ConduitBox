@@ -1,4 +1,4 @@
-package conduitbox.types;
+package conduitbox;
 
 typedef Location = {
     path: String,

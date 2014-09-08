@@ -1,136 +1,147 @@
 package conduitbox;
 
-import conduitbox.types.Application;
-import conduitbox.types.PageContent;
-import conduitbox.types.PageFrame;
-import conduitbox.types.PageNavigation;
-import hxgnd.ControllablePromise;
+import hxgnd.js.Html;
+import hxgnd.PromiseBroker;
 import hxgnd.Stream;
+import hxgnd.StreamBroker;
 import hxgnd.Unit;
-import hxgnd.Option;
+import conduitbox.Application;
+import conduitbox.internal.LocationTools;
+import conduitbox.PageFrame;
+import conduitbox.PageNavigation;
 import js.Browser;
-import js.Error;
-import js.html.AnchorElement;
-import js.html.Element;
-import js.html.Event;
 import js.html.EventTarget;
 
-using Lambda;
 using hxgnd.OptionTools;
 
 class Engine<TPage: EnumValue> {
-    var app: Application<TPage>;
+    var application: Application<TPage>;
     var frame: PageFrame<TPage>;
-    var content: PageContent<TPage>;
-    var page: TPage;
+    var navigation: StreamBroker<TPage>;
+    var pageChanged: Stream<TPage>;
 
-    // TODO 要リファクタリング
-    function new(app) {
-        this.app = app;
-    }
+    //mutable
+    var currentPage: CurrentPage<TPage>;
 
-    function run() {
+    public function new(app: Application<TPage>) {
+        this.navigation = new StreamBroker();
+        this.application = app;
+        this.pageChanged = navigation.stream;
+
         app.bootstrap().then(function onStartup(_) {
-            var inited = new ControllablePromise();
-
-            var location = new Stream(function (update, _, _) {
-                inited.then(function (_) {
-                    History.Adapter.bind(Browser.window, "statechange", function () {
-                        update(LocationTools.toLocation(Browser.location));
-                    });
-                });
-                return function () {};
-            })
-            .then(function onLocationUpdated(location) {
-                switch (app.fromLocation(location)) {
-                    case Some(x): changePage(x);
-                    case None: throw new Error("cannot resolve page");
-                }
-            }, function (err) {
-                untyped __js__("console.error(err)");
-            });
-
-            registerAnchorHandler();
-
-            var context = { location: location };
-
-            this.frame = app.frame(context);
-            frame.navigation.then(onPageEvent, function (e) {
-                trace("TODO error handling");
-                trace(e);
-            });
-
-            switch (app.fromLocation(LocationTools.toLocation(Browser.location))) {
-                case Some(x): changePage(x);
-                case None: throw new Error("cannot resolve page");
+            var startPage = switch (app.locationMapping) {
+                case Single(x): x;
+                case Mapping(mapper): mapper.from(LocationTools.currentLocation());
             }
 
-            inited.resolve(Unit._);
-        }, function (e) {
-            untyped __js__("console.error(arguments[0])");
+            var ctx = { pageChanged: pageChanged };
+            this.frame = app.createFrame(ctx);
+
+            renderPage(startPage);
+            frame.navigation.then(onNavigate);
+
+            switch (app.locationMapping) {
+                case Mapping(mapper):
+                    History.Adapter.bind(Browser.window, "statechange", function onStateChange() {
+                        var data: { ?ignore: Bool } = History.getState().data;
+                        if (data.ignore != true) renderPage(mapper.from(LocationTools.currentLocation()));
+                    });
+                case _:
+            }
         });
     }
 
-    function registerAnchorHandler() {
-        Browser.document.addEventListener("click", function (event: Event) {
-            function getAnchor(elem: Element) {
-                return if (elem == null || elem.tagName == null) {
-                    None;
-                } else if (untyped __strict_eq__(elem.tagName.toUpperCase(), "A")) {
-                    Some(cast(elem, AnchorElement));
-                } else {
-                    getAnchor(elem.parentElement);
-                }
+    function renderPage(page: TPage) {
+        try {
+            if (currentPage != null) {
+                currentPage.closedBroker.fulfill(Unit._);
+                currentPage.slot.off();
+                currentPage.slot.find("*").off();
+                currentPage.slot.remove();
             }
 
-            getAnchor(cast event.target).iter(function (a: AnchorElement) {
-                if (a.hasAttribute("data-history")
-                        && !~/^javascript:/.match(StringTools.trim(a.href))
-                        && a.host == Browser.location.host
-                        && a.protocol == Browser.location.protocol) {
-                    event.preventDefault();
-                    History.pushState(null, null, a.href);
-                }
-            });
-        }, false);
-    }
+            var slot = frame.createSlot();
 
-    function onPageEvent(event: PageNavigation<TPage>) {
-        switch (event) {
-            case Navigate(x):
-                // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
-                History.pushState("data", null, LocationTools.toUrl(app.toLocation(x)));
-            case Reload:
-                if (page != null) changePage(page);
-            case Foward:
-                History.forward();
-            case Back:
-                History.back();
+            var broker = new PromiseBroker();
+            var render = application.createRenderer(page);
+            var nav = render(slot, broker.promise);
+            nav.then(onNavigate);
+
+            currentPage = {
+                page: page,
+                slot: slot,
+                closedBroker: broker
+            };
+
+            navigation.update(page);
+            if (application.onPageLoaded != null) {
+                try {
+                    application.onPageLoaded(page);
+                } catch (error: Dynamic) {
+                    trace(error);
+                }
+            }
         }
     }
 
-    function changePage(page: TPage) {
-        if (content != null) content.dispose();
-
-        this.page = page;
-        content = app.content(page);
-        content.navigation.then(onPageEvent);
-        frame.render(content);
+    function onNavigate(navigation) {
+        try {
+            switch (navigation) {
+                case PageNavigation.Navigate(x): //!
+                    renderPage(x);
+                    switch (application.locationMapping) {
+                        case Mapping(mapper):
+                            var location = mapper.to(x);
+                            // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
+                            History.pushState({ignore: true}, null, LocationTools.toUrl(location));
+                        case Single(_):
+                    }
+                case PageNavigation.Reload:
+                    if (currentPage != null) renderPage(currentPage.page);
+                case PageNavigation.Foward:
+                    switch (application.locationMapping) {
+                        case Mapping(_):
+                            History.forward();
+                        case Single(_):
+                            trace("unsuppoted navigation");
+                    }
+                case PageNavigation.Back:
+                    switch (application.locationMapping) {
+                        case Mapping(_):
+                            History.back();
+                        case Single(_):
+                            trace("unsuppoted navigation");
+                    }
+            }
+        } catch (error: Dynamic) {
+            // TODO エラー通知
+            trace(error);
+        }
     }
 
     public static function start<TPage: EnumValue>(app: Application<TPage>): Void {
-        new Engine(app).run();
+        new Engine(app);
     }
+}
+
+private typedef CurrentPage<TPage: EnumValue> = {
+    var page(default, null): TPage;
+    var slot(default, null): Html;
+    var closedBroker(default, null): PromiseBroker<Unit>;
 }
 
 @:native("History")
 private extern class History {
     static function pushState(data: Null<Dynamic>, title: Null<String>, url: String): Bool;
-    static function getState(): Null<Dynamic>;
+    static function getState(): HistoryState;
     static function forward(): Void;
     static function back(): Void;
 
     static var Adapter: {
         function bind(element: EventTarget, name: String, handler: Void -> Void): Void;
     };
+}
+
+private typedef HistoryState = {
+    var data(default, null): Dynamic;
 }

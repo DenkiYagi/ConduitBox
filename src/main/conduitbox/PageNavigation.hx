@@ -1,4 +1,4 @@
-package conduitbox.types;
+package conduitbox;
 
 enum PageNavigation<TPage: EnumValue> {
     Navigate(page: TPage);

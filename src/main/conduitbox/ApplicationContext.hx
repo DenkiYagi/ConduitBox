@@ -1,8 +1,7 @@
 package conduitbox;
 
 import hxgnd.Stream;
-import conduitbox.types.Location;
 
-typedef ApplicationContext = {
-    var location(default, null): Stream<Location>;
+typedef ApplicationContext<TPage: EnumValue> = {
+    var pageChanged(default, null): Stream<TPage>;
 }

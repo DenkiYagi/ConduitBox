@@ -1,13 +1,9 @@
-package conduitbox;
+package conduitbox.internal;
 
 import js.Browser;
-import conduitbox.types.Location;
+import conduitbox.Location;
 using Lambda;
 
-/**
- * ...
- * @author terurou
- */
 class LocationTools {
     public static function currentLocation(): Location {
         return toLocation(Browser.location);
