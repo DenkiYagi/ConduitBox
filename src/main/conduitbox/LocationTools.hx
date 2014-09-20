@@ -1,8 +1,7 @@
-package conduitbox.internal;
+package conduitbox;
 
 import js.Browser;
 import conduitbox.Location;
-using Lambda;
 
 class LocationTools {
     public static function currentLocation(): Location {
@@ -33,7 +32,7 @@ class LocationTools {
         };
     }
 
-    public static function toUrl<TPage: EnumValue>(location: Location): String {
+    public static function toUrl(location: Location): String {
         function toQuery(query: Null<Map<String, String>>) {
             var entries = [];
             if (query != null) {
@@ -41,7 +40,7 @@ class LocationTools {
                     entries.push('${StringTools.htmlEscape(k)}=${StringTools.htmlEscape(query.get(k))}');
                 }
             }
-            return entries.empty() ? "" : '?${entries.join("&")}';
+            return Lambda.empty(entries) ? "" : '?${entries.join("&")}';
         }
 
         function toHash(hash: Null<String>) {

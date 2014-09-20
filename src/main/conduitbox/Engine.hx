@@ -6,15 +6,35 @@ import hxgnd.Stream;
 import hxgnd.StreamBroker;
 import hxgnd.Unit;
 import conduitbox.Application;
-import conduitbox.internal.LocationTools;
+import conduitbox.LocationTools;
 import conduitbox.PageFrame;
 import conduitbox.PageNavigation;
 import js.Browser;
+import js.html.AnchorElement;
+import js.html.Event;
 import js.html.EventTarget;
+import hxgnd.js.JQuery;
 
 using hxgnd.OptionTools;
 
-class Engine<TPage: EnumValue> {
+class Engine {
+    public static var currentLocation(get, null): Location;
+    public static var currentUrl(get, null): String;
+
+    public static function start<TPage: EnumValue>(app: Application<TPage>): Void {
+        new AppController(app);
+    }
+
+    static function get_currentLocation() {
+        return LocationTools.currentLocation();
+    }
+
+    static function get_currentUrl() {
+        return LocationTools.currentUrl();
+    }
+}
+
+private class AppController<TPage: EnumValue> {
     var application: Application<TPage>;
     var frame: PageFrame<TPage>;
     var navigation: StreamBroker<TPage>;
@@ -46,40 +66,45 @@ class Engine<TPage: EnumValue> {
                         var data: { ?ignore: Bool } = History.getState().data;
                         if (data.ignore != true) renderPage(mapper.from(LocationTools.currentLocation()));
                     });
+                    JQuery._("body").on("click", "a[data-navigation]", function (event: Event) {
+                        var elem = cast(event.target, AnchorElement);
+                        if (elem.protocol == Browser.location.protocol && elem.host == Browser.location.host) {
+                            event.preventDefault();
+                            renderPage(mapper.from(LocationTools.toLocation(elem)));
+                        }
+                    });
                 case _:
             }
         });
     }
 
     function renderPage(page: TPage) {
-        try {
-            if (currentPage != null) {
-                currentPage.closedBroker.fulfill(Unit._);
-                currentPage.slot.off();
-                currentPage.slot.find("*").off();
-                currentPage.slot.remove();
-            }
+        if (currentPage != null) {
+            currentPage.closedBroker.fulfill(Unit._);
+            currentPage.slot.off();
+            currentPage.slot.find("*").off();
+            currentPage.slot.remove();
+        }
 
-            var slot = frame.createSlot();
+        var slot = frame.createSlot();
 
-            var broker = new PromiseBroker();
-            var render = application.createRenderer(page);
-            var nav = render(slot, broker.promise);
-            nav.then(onNavigate);
+        var broker = new PromiseBroker();
+        var render = application.createRenderer(page);
+        var nav = render(slot, broker.promise);
+        nav.then(onNavigate);
 
-            currentPage = {
-                page: page,
-                slot: slot,
-                closedBroker: broker
-            };
+        currentPage = {
+            page: page,
+            slot: slot,
+            closedBroker: broker
+        };
 
-            navigation.update(page);
-            if (application.onPageLoaded != null) {
-                try {
-                    application.onPageLoaded(page);
-                } catch (error: Dynamic) {
-                    trace(error);
-                }
+        navigation.update(page);
+        if (application.onPageLoaded != null) {
+            try {
+                application.onPageLoaded(page);
+            } catch (error: Dynamic) {
+                trace(error);
             }
         }
     }
@@ -117,10 +142,6 @@ class Engine<TPage: EnumValue> {
             // TODO エラー通知
             trace(error);
         }
-    }
-
-    public static function start<TPage: EnumValue>(app: Application<TPage>): Void {
-        new Engine(app);
     }
 }
 
