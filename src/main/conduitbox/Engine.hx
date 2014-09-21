@@ -107,11 +107,9 @@ private class AppController<TPage: EnumValue> {
     }
 
     function renderPage(page: TPage) {
-        var render = application.createRenderer(page);
-
         var slot = frame.createSlot();
         var broker = new PromiseBroker();
-        var nav = render(slot, broker.promise); //TODO navはpromiseで良い
+        var nav = application.renderPage(page, slot, broker.promise); //TODO navはpromiseで良い
         nav.then(onPageNavigation);
 
         return {

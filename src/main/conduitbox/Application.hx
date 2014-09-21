@@ -4,11 +4,13 @@ import hxgnd.Promise;
 import hxgnd.Unit;
 import hxgnd.Option;
 import conduitbox.ApplicationContext;
+import hxgnd.Promise;
+import hxgnd.js.Html;
 
 typedef Application<TPage: EnumValue> = {
     bootstrap: Void -> Promise<Unit>,
     createFrame: ApplicationContext<TPage> -> PageFrame<TPage>,
-    createRenderer: TPage -> PageRenderer<TPage>,
+    renderPage: TPage -> Html -> Promise<Unit> -> Promise<PageNavigation<TPage>>,
     locationMapping: LocationMapping<TPage>,
     ?onPageLoaded: TPage -> Void
 }
