@@ -3,7 +3,6 @@ package conduitbox;
 import conduitbox.Application;
 import conduitbox.Frame;
 import conduitbox.Navigation;
-import hxgnd.js.Html;
 import hxgnd.js.JQuery;
 import hxgnd.Promise;
 import hxgnd.PromiseBroker;
