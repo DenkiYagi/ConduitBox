@@ -7,15 +7,12 @@ import conduitbox.PageNavigation;
 import hxgnd.js.Html;
 import hxgnd.js.JQuery;
 import hxgnd.PromiseBroker;
-import hxgnd.Stream;
 import hxgnd.StreamBroker;
 import hxgnd.Unit;
 import js.Browser;
 import js.html.AnchorElement;
 import js.html.Event;
 import js.html.EventTarget;
-
-using hxgnd.OptionTools;
 
 class Engine {
     public static var currentLocation(get, null): Location;
@@ -38,91 +35,108 @@ private class AppController<TPage: EnumValue> {
     var application: Application<TPage>;
     var frame: PageFrame<TPage>;
     var navigation: StreamBroker<TPage>;
-    var pageChanged: Stream<TPage>;
-
-    //mutable
-    var currentPage: CurrentPage<TPage>;
+    var currentPage: RenderedPage<TPage>; //mutable
 
     public function new(app: Application<TPage>) {
         this.navigation = new StreamBroker();
         this.application = app;
-        this.pageChanged = navigation.stream;
+
+        setLocationHanlder(app.locationMapping);
 
         app.bootstrap().then(function onStartup(_) {
-            var startPage = switch (app.locationMapping) {
+            var ctx = { pageChanged: navigation.stream };
+            this.frame = app.createFrame(ctx);
+            frame.navigation.then(onPageNavigation);
+
+            currentPage = renderPage(switch (app.locationMapping) {
                 case Single(x): x;
                 case Mapping(mapper): mapper.from(LocationTools.currentLocation());
-            }
+            });
+        });
+    }
 
-            var ctx = { pageChanged: pageChanged };
-            this.frame = app.createFrame(ctx);
+    function setLocationHanlder(mapping: LocationMapping<TPage>) {
+        switch (mapping) {
+            case Mapping(mapper):
+                setNavigationAnchorHanlder(mapper);
+                setHistoryHanlder(mapper);
+            case _:
+                // nop
+        }
+    }
 
-            renderPage(startPage);
-            frame.navigation.then(onNavigate);
-
-            switch (app.locationMapping) {
-                case Mapping(mapper):
-                    History.Adapter.bind(Browser.window, "statechange", function onStateChange() {
-                        var data: { ?ignore: Bool } = History.getState().data;
-                        if (data.ignore != true) renderPage(mapper.from(LocationTools.currentLocation()));
-                    });
-                    JQuery._("body").on("click", "a[data-navigation]", function (event: Event) {
-                        var elem = cast(event.target, AnchorElement);
-                        if (elem.protocol == Browser.location.protocol && elem.host == Browser.location.host) {
-                            event.preventDefault();
-                            renderPage(mapper.from(LocationTools.toLocation(elem)));
-                        }
-                    });
-                case _:
+    function setNavigationAnchorHanlder(mapper: LocationMapper<TPage>) {
+        JQuery._("body").on("click", "a[data-navigation]", function (event: Event) {
+            var elem = cast(event.target, AnchorElement);
+            if (elem.protocol == Browser.location.protocol && elem.host == Browser.location.host) {
+                event.preventDefault();
+                navigate(mapper.from(LocationTools.toLocation(elem)));
             }
         });
     }
 
-    function renderPage(page: TPage) {
-        if (currentPage != null) {
-            currentPage.closedBroker.fulfill(Unit._);
-            currentPage.slot.off();
-            currentPage.slot.find("*").off();
-            currentPage.slot.remove();
+    function setHistoryHanlder(mapper: LocationMapper<TPage>) {
+        History.Adapter.bind(Browser.window, "statechange", function () {
+            replacePage(mapper.from(LocationTools.currentLocation()));
+        });
+    }
+
+    function navigate(page: TPage) {
+        switch (application.locationMapping) {
+            case Single(_):
+                replacePage(page);
+            case Mapping(mapper):
+                var location = mapper.to(page);
+                // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
+                History.pushState({ }, null, LocationTools.toUrl(location));
         }
+    }
 
-        var slot = frame.createSlot();
-
-        var broker = new PromiseBroker();
-        var render = application.createRenderer(page);
-        var nav = render(slot, broker.promise);
-        nav.then(onNavigate);
-
-        currentPage = {
-            page: page,
-            slot: slot,
-            closedBroker: broker
-        };
+    function replacePage(page: TPage) {
+        destroyPage(currentPage);
+        currentPage = renderPage(page);
 
         navigation.update(page);
         if (application.onPageLoaded != null) {
             try {
                 application.onPageLoaded(page);
-            } catch (error: Dynamic) {
-                trace(error);
+            } catch (err: Dynamic) {
+                trace(err);
             }
         }
     }
 
-    function onNavigate(navigation) {
+    function renderPage(page: TPage) {
+        var render = application.createRenderer(page);
+
+        var slot = frame.createSlot();
+        var broker = new PromiseBroker();
+        var nav = render(slot, broker.promise); //TODO navはpromiseで良い
+        nav.then(onPageNavigation);
+
+        return {
+            page: page,
+            slot: slot,
+            closedBroker: broker
+        };
+    }
+
+    function destroyPage(page: RenderedPage<TPage>) {
+        if (page != null) {
+            page.closedBroker.fulfill(Unit._);
+            page.slot.off();
+            page.slot.find("*").off();
+            page.slot.remove();
+        }
+    }
+
+    function onPageNavigation(navigation) {
         try {
             switch (navigation) {
                 case PageNavigation.Navigate(x): //!
-                    renderPage(x);
-                    switch (application.locationMapping) {
-                        case Mapping(mapper):
-                            var location = mapper.to(x);
-                            // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
-                            History.pushState({ignore: true}, null, LocationTools.toUrl(location));
-                        case Single(_):
-                    }
+                    navigate(x);
                 case PageNavigation.Reload:
-                    if (currentPage != null) renderPage(currentPage.page);
+                    if (currentPage != null) replacePage(currentPage.page);
                 case PageNavigation.Foward:
                     switch (application.locationMapping) {
                         case Mapping(_):
@@ -145,7 +159,7 @@ private class AppController<TPage: EnumValue> {
     }
 }
 
-private typedef CurrentPage<TPage: EnumValue> = {
+private typedef RenderedPage<TPage: EnumValue> = {
     var page(default, null): TPage;
     var slot(default, null): Html;
     var closedBroker(default, null): PromiseBroker<Unit>;
