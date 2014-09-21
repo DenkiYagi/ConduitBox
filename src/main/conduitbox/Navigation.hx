@@ -1,6 +1,6 @@
 package conduitbox;
 
-enum PageNavigation<TPage: EnumValue> {
+enum Navigation<TPage: EnumValue> {
     Navigate(page: TPage);
     Reload;
     Foward;

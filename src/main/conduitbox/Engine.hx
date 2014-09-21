@@ -1,11 +1,11 @@
 package conduitbox;
 
 import conduitbox.Application;
-import conduitbox.LocationTools;
-import conduitbox.PageFrame;
-import conduitbox.PageNavigation;
+import conduitbox.Frame;
+import conduitbox.Navigation;
 import hxgnd.js.Html;
 import hxgnd.js.JQuery;
+import hxgnd.Promise;
 import hxgnd.PromiseBroker;
 import hxgnd.StreamBroker;
 import hxgnd.Unit;
@@ -32,25 +32,24 @@ class Engine {
 }
 
 private class AppController<TPage: EnumValue> {
-    var application: Application<TPage>;
-    var frame: PageFrame<TPage>;
-    var navigation: StreamBroker<TPage>;
+    var app: Application<TPage>;
+    var frame: Frame<TPage>;
+    var onPageChangeBroker: StreamBroker<TPage>;
     var currentPage: RenderedPage<TPage>; //mutable
 
     public function new(app: Application<TPage>) {
-        this.navigation = new StreamBroker();
-        this.application = app;
+        this.app = app;
+        this.onPageChangeBroker = new StreamBroker();
 
         setLocationHanlder(app.locationMapping);
 
         app.bootstrap().then(function onStartup(_) {
-            var ctx = { pageChanged: navigation.stream };
-            this.frame = app.createFrame(ctx);
+            this.frame = app.createFrame(onPageChangeBroker.stream);
             frame.navigation.then(onPageNavigation);
 
-            currentPage = renderPage(switch (app.locationMapping) {
+            renderPage(switch (app.locationMapping) {
                 case Single(x): x;
-                case Mapping(mapper): mapper.from(LocationTools.currentLocation());
+                case Mapping(mapper): mapper.toPage(LocationTools.currentLocation());
             });
         });
     }
@@ -70,80 +69,73 @@ private class AppController<TPage: EnumValue> {
             var elem = cast(event.target, AnchorElement);
             if (elem.protocol == Browser.location.protocol && elem.host == Browser.location.host) {
                 event.preventDefault();
-                navigate(mapper.from(LocationTools.toLocation(elem)));
+                navigate(mapper.toPage(LocationTools.toLocation(elem)));
             }
         });
     }
 
     function setHistoryHanlder(mapper: LocationMapper<TPage>) {
         History.Adapter.bind(Browser.window, "statechange", function () {
-            replacePage(mapper.from(LocationTools.currentLocation()));
+            renderPage(mapper.toPage(LocationTools.currentLocation()));
         });
     }
 
     function navigate(page: TPage) {
-        switch (application.locationMapping) {
+        switch (app.locationMapping) {
             case Single(_):
-                replacePage(page);
+                renderPage(page);
             case Mapping(mapper):
-                var location = mapper.to(page);
+                var location = mapper.toLocation(page);
                 // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
                 History.pushState({ }, null, LocationTools.toUrl(location));
         }
     }
 
-    function replacePage(page: TPage) {
-        destroyPage(currentPage);
-        currentPage = renderPage(page);
+    function renderPage(page: TPage) {
+        var isInit = currentPage == null;
 
-        navigation.update(page);
-        if (application.onPageLoaded != null) {
+        if (!isInit) {
+            currentPage.onClosedBroker.fulfill(Unit._);
+            currentPage.navigation.cancel();
+
+            frame.slot.off();
+            frame.slot.find("*").off();
+            frame.slot.empty();
+        }
+
+        currentPage = {
+            var onClosed = new PromiseBroker();
+            var navigation = app.renderPage(page, frame.slot, onClosed.promise);
+            navigation.then(onPageNavigation);
+            { page: page, navigation: navigation, onClosedBroker: onClosed };
+        }
+
+        if (!isInit) onPageChangeBroker.update(page);
+        if (app.onPageRendered != null) {
             try {
-                application.onPageLoaded(page);
+                app.onPageRendered(page);
             } catch (err: Dynamic) {
                 trace(err);
             }
         }
     }
 
-    function renderPage(page: TPage) {
-        var slot = frame.createSlot();
-        var broker = new PromiseBroker();
-        var nav = application.renderPage(page, slot, broker.promise); //TODO navはpromiseで良い
-        nav.then(onPageNavigation);
-
-        return {
-            page: page,
-            slot: slot,
-            closedBroker: broker
-        };
-    }
-
-    function destroyPage(page: RenderedPage<TPage>) {
-        if (page != null) {
-            page.closedBroker.fulfill(Unit._);
-            page.slot.off();
-            page.slot.find("*").off();
-            page.slot.remove();
-        }
-    }
-
     function onPageNavigation(navigation) {
         try {
             switch (navigation) {
-                case PageNavigation.Navigate(x): //!
+                case Navigation.Navigate(x): //!
                     navigate(x);
-                case PageNavigation.Reload:
-                    if (currentPage != null) replacePage(currentPage.page);
-                case PageNavigation.Foward:
-                    switch (application.locationMapping) {
+                case Navigation.Reload:
+                    if (currentPage != null) renderPage(currentPage.page);
+                case Navigation.Foward:
+                    switch (app.locationMapping) {
                         case Mapping(_):
                             History.forward();
                         case Single(_):
                             trace("unsuppoted navigation");
                     }
-                case PageNavigation.Back:
-                    switch (application.locationMapping) {
+                case Navigation.Back:
+                    switch (app.locationMapping) {
                         case Mapping(_):
                             History.back();
                         case Single(_):
@@ -157,10 +149,58 @@ private class AppController<TPage: EnumValue> {
     }
 }
 
+private class LocationTools {
+    public static function currentLocation(): Location {
+        return toLocation(Browser.location);
+    }
+
+    public static function currentUrl(): String {
+        return toUrl(toLocation(Browser.location));
+    }
+
+    public static function toLocation(x: {pathname: String, search: String, hash: String}): Location {
+        function toQueryMap(search: String) {
+            var map = new Map();
+            if (search.length > 0) {
+                for (item in search.substring(1).split("&")) {
+                    var tokens = item.split("=");
+                    var key = StringTools.urlDecode(tokens[0]);
+                    var val = (tokens[1] == null) ? "" : StringTools.urlDecode(tokens[1]);
+                    map[key] = val;
+                }
+            }
+            return map;
+        }
+        return {
+            path: x.pathname,
+            query: toQueryMap(x.search),
+            hash: x.hash
+        };
+    }
+
+    public static function toUrl(location: Location): String {
+        function toQuery(query: Null<Map<String, String>>) {
+            var entries = [];
+            if (query != null) {
+                for (k in query.keys()) {
+                    entries.push('${StringTools.htmlEscape(k)}=${StringTools.htmlEscape(query.get(k))}');
+                }
+            }
+            return Lambda.empty(entries) ? "" : '?${entries.join("&")}';
+        }
+
+        function toHash(hash: Null<String>) {
+            return (hash == null || hash == "") ? "": '#$hash';
+        }
+
+        return '${location.path}${toQuery(location.query)}${toHash(location.hash)}';
+    }
+}
+
 private typedef RenderedPage<TPage: EnumValue> = {
     var page(default, null): TPage;
-    var slot(default, null): Html;
-    var closedBroker(default, null): PromiseBroker<Unit>;
+    var navigation(default, null): Promise<Navigation<TPage>>;
+    var onClosedBroker(default, null): PromiseBroker<Unit>;
 }
 
 @:native("History")
