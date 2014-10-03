@@ -84,9 +84,10 @@ private class AppController<TPage: EnumValue> {
             case Single(_):
                 renderPage(page);
             case Mapping(mapper):
+                // Mappingの場合は、history.statechangeで画面遷移を行う
                 var location = mapper.toLocation(page);
-                // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
                 History.pushState({ }, null, LocationTools.toUrl(location));
+                // TODO History.pushState("{param=1}", null, "url"));みたいにしないと、IE8/9が対応できない
         }
     }
 
