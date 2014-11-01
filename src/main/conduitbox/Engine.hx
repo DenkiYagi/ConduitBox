@@ -41,6 +41,8 @@ private class AppController<TPage: EnumValue> {
         this.app = app;
         this.onPageChangeBroker = new StreamBroker();
 
+        // Java ServletがサーバAPIの場合、初回リクエスト時にjsessionidが付いてしまい、
+        // locatoin.pathname が処理しづらい形式になってしまうため、一度Redirectさせる
         switch (getRedirectUrl()) {
             case Some(x):
                 Browser.location.replace(x);
