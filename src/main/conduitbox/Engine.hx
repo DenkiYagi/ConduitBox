@@ -8,6 +8,7 @@ import hxgnd.Promise;
 import hxgnd.PromiseBroker;
 import hxgnd.StreamBroker;
 import hxgnd.Unit;
+import hxgnd.Option;
 import js.Browser;
 import js.html.AnchorElement;
 import js.html.Event;
@@ -40,17 +41,38 @@ private class AppController<TPage: EnumValue> {
         this.app = app;
         this.onPageChangeBroker = new StreamBroker();
 
-        setLocationHanlder(app.locationMapping);
+        switch (getRedirectUrl()) {
+            case Some(x):
+                Browser.location.replace(x);
+            case None:
+                app.bootstrap().then(function onStartup(_) {
+                    this.frame = app.createFrame(onPageChangeBroker.stream);
+                    frame.navigation.then(onPageNavigation);
+                    renderPage(switch (app.locationMapping) {
+                        case Single(x): x;
+                        case Mapping(mapper): mapper.toPage(LocationTools.currentLocation());
+                    });
+                });
+        }
+    }
 
-        app.bootstrap().then(function onStartup(_) {
-            this.frame = app.createFrame(onPageChangeBroker.stream);
-            frame.navigation.then(onPageNavigation);
-
-            renderPage(switch (app.locationMapping) {
-                case Single(x): x;
-                case Mapping(mapper): mapper.toPage(LocationTools.currentLocation());
-            });
-        });
+    function getRedirectUrl() {
+        return switch (app.locationMapping) {
+            case Mapping(mapper):
+                var location = LocationTools.currentLocation();
+                var ereg = new EReg("([^;]+);jsessionid=(?:\\w+)$", "");
+                if (ereg.match(location.path)) {
+                    Option.Some(LocationTools.toUrl({
+                        path: ereg.matched(1),
+                        query: location.query,
+                        hash: location.hash
+                    }));
+                } else {
+                    Option.None;
+                }
+            case _:
+            Option.None;
+        }
     }
 
     function setLocationHanlder(mapping: LocationMapping<TPage>) {
@@ -151,6 +173,7 @@ private class AppController<TPage: EnumValue> {
 
 private class LocationTools {
     public static function currentLocation(): Location {
+        trace(Browser.location);
         return toLocation(Browser.location);
     }
 
