@@ -47,6 +47,7 @@ private class AppController<TPage: EnumValue> {
             case Some(x):
                 Browser.location.replace(x);
             case None:
+                setLocationHanlder(app.locationMapping);
                 app.bootstrap().then(function onStartup(_) {
                     this.frame = app.createFrame(onPageChangeBroker.stream);
                     frame.navigation.then(onPageNavigation);
@@ -175,7 +176,6 @@ private class AppController<TPage: EnumValue> {
 
 private class LocationTools {
     public static function currentLocation(): Location {
-        trace(Browser.location);
         return toLocation(Browser.location);
     }
 
