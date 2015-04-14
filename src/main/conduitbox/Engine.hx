@@ -4,6 +4,7 @@ import conduitbox.Application;
 import conduitbox.Frame;
 import conduitbox.Navigation;
 import hxgnd.js.JQuery;
+import hxgnd.js.JsTools;
 import hxgnd.Promise;
 import hxgnd.PromiseBroker;
 import hxgnd.StreamBroker;
@@ -119,29 +120,34 @@ private class AppController<TPage: EnumValue> {
     function renderPage(page: TPage) {
         var isInit = currentPage == null;
 
-        if (!isInit) {
+        function render(_) {
+            currentPage = {
+                var onClosed = new PromiseBroker();
+                var navigation = app.renderPage(page, frame.slot, onClosed.promise);
+                navigation.then(onPageNavigation);
+                { page: page, navigation: navigation, onClosedBroker: onClosed };
+            }
+
+            if (!isInit) onPageChangeBroker.update(page);
+            if (app.onPageRendered != null) {
+                try {
+                    app.onPageRendered(page);
+                } catch (err: Dynamic) {
+                    trace(err);
+                }
+            }
+        }
+
+        if (isInit) {
+            render(Unit._);
+        } else {
+            currentPage.onClosedBroker.promise.then(render);
+
             currentPage.onClosedBroker.fulfill(Unit._);
             currentPage.navigation.cancel();
 
             frame.slot.off();
-            frame.slot.find("*").off();
             frame.slot.empty();
-        }
-
-        currentPage = {
-            var onClosed = new PromiseBroker();
-            var navigation = app.renderPage(page, frame.slot, onClosed.promise);
-            navigation.then(onPageNavigation);
-            { page: page, navigation: navigation, onClosedBroker: onClosed };
-        }
-
-        if (!isInit) onPageChangeBroker.update(page);
-        if (app.onPageRendered != null) {
-            try {
-                app.onPageRendered(page);
-            } catch (err: Dynamic) {
-                trace(err);
-            }
         }
     }
 
